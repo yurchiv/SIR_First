@@ -1,0 +1,213 @@
+<!doctype html>
+<title>Епідеміологічна модель</title>
+<style>
+  /* Загальний стиль для сторінки */
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Стилі для header */
+  header {
+    background-color: #4CAF50;
+    color: white;
+    text-align: center;
+    padding: 10px 0;
+  }
+
+  /* Стилі для меню */
+  nav {
+    background-color: #f2f2f2;
+    padding: 10px;
+    text-align: center;
+  }
+
+  nav a {
+    margin: 0 15px;
+    color: #4CAF50;
+    text-decoration: none;
+  }
+
+  nav a:hover {
+    text-decoration: underline;
+  }
+
+  /* Стилі для footer */
+  footer {
+    background-color: #4CAF50;
+    color: white;
+    text-align: center;
+    padding: 10px 0;
+    position: absolute;
+    width: 100%;
+    bottom: 0;
+  }
+
+  /* Система колонок */
+  .container {
+    display: flex;
+    min-height: 80vh; /* Висота основного контенту */
+    padding: 20px;
+  }
+
+  /* Ліва колонка (параметри) */
+  .left-column {
+    width: 30%; /* Ширина лівої колонки */
+    padding: 20px;
+    border-right: 2px solid #ddd;
+  }
+
+  /* Права колонка (графік) */
+  .right-column {
+    width: 70%; /* Ширина правої колонки */
+    padding: 20px;
+  }
+
+  /* Стилі для форм */
+  input[type="number"] {
+    margin: 5px 0;
+    padding: 5px;
+    width: 100%;
+  }
+
+  input[type="checkbox"] {
+    margin: 10px 0;
+  }
+
+  input[type="submit"] {
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  input[type="submit"]:hover {
+    background-color: #45a049;
+  }
+
+  /* Стилі для зображення графіку */
+  .result img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Стиль для результатів */
+  .result {
+    margin-top: 20px;
+  }
+</style>
+
+<script type="text/javascript" async
+  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML">
+</script>
+
+<header>
+  <h1>Епідеміологічна модель</h1>
+</header>
+
+<nav>
+  <a href="#model-description">Теоретична частина</a>
+  <a href="#">Графік</a>
+  <a href="#">Параметри</a>
+  <a href="#">Експорт CSV</a>
+  <a href="#">Експорт PDF</a>
+</nav>
+
+<div class="container">
+  <!-- Ліва колонка (параметри) -->
+  <div class="left-column">
+    <h2>Налаштування моделі епідемії</h2>
+    <form method="POST">
+
+      {% for key, val in params.items() %}
+        <label>{{ key }}:</label>
+        <input name="{{ key }}" value="{{ val }}" type="number" step="any"><br>
+      {% endfor %}
+      <input type="submit" value="Запустити модель">
+      
+    </form>  
+
+    <!-- порівняння результатів -->
+    <br><br>
+    <form method="POST" action="/compare">
+      <input type="submit" value="Порівняти результати без нейромережі та з нейромережею">
+    </form>
+
+   
+    </form>
+  </div>
+
+  <!-- Права колонка (графік) -->
+  <div class="right-column">
+    {% if plot_url %}
+      <h3>Результат моделювання:</h3>
+      <img src="data:image/png;base64,{{ plot_url }}" alt="Графік результатів моделювання">
+      <section id="export" class="result">
+        <p><a href="/download-csv">Завантажити CSV</a></p>
+        <p><a href="/download-pdf">Завантажити PDF</a></p>
+      </section>
+
+      <h1>Помилки (для нейромережі)</h1>
+                <p>Loss     : {{ mean_errors["Loss"] }}</p>
+                <p>MAE      : {{ mean_errors["MAE"] }}</p>
+                <p>MSE      : {{ mean_errors["MSE"] }}</p>
+                <p>Root MSE : {{ mean_errors["RMSE"] }}</p>
+
+    {% endif %}
+  </div>
+</div>
+
+    
+
+    <section id="model-description" class="description-container">
+
+    <h3>Опис теоретичної моделі</h3>
+    <p>Ми використовуємо стохастичну модель для моделювання поширення інфекційної хвороби в популяції, з урахуванням вакцинування та реінфекції. Ця модель складається з чотирьох груп осіб: сприйнятливі (S), інфіковані (I), одужавші (R), та вакциновані (V). Моделювання базується на стохастичних диференціальних рівняннях, де враховано ймовірнісні збурення для кожної групи.</p>
+    
+    <h4>Математичні рівняння:</h4>
+    <p>Математичні рівняння моделі виглядають наступним чином:</p>
+    <p>1. Для групи сприйнятливих:</p>
+    <p>
+      \( dS = - &#946; \cdot S \cdot I \cdot dt + \sigma \cdot S \cdot dW_S - v_{rate} \cdot S \cdot dt + reinf_{rate} \cdot R \cdot dt \)
+    </p>
+    <p>2. Для групи інфікованих:</p>
+    <p>
+      \( dI = ( &#946; \cdot S \cdot I - \gamma \cdot I) \cdot dt + \sigma \cdot I \cdot dW_I + {&#955;}_{jump} dN_t + {reinf}_{rate} \cdot R \cdot dt \cdot {reinf}_{factor} \)
+    </p>
+    <p>3. Для групи одужалих:</p>
+    <p>
+      \( dR = \gamma \cdot I \cdot dt + \sigma \cdot I \cdot dW_R - {reinf}_{rate} \cdot R \cdot dt \cdot {reinf}_{factor} \)
+    </p>
+    <p>4. Для групи вакцинованих:</p>
+    <p>
+      \( dV = v_{rate} \cdot S \cdot dt \) (починаючи з \( vaccine_{start}\) ) 
+    </p>
+    
+    <h4>Опис змінних та параметрів:</h4>
+    <ul>
+      <li><strong>\( S \):</strong> Кількість осіб, які є сприйнятливими до інфекції.</li>
+      <li><strong>\( I \):</strong> Кількість інфікованих осіб.</li>
+      <li><strong>\( R \):</strong> Кількість осіб, які одужали від інфекції.</li>
+      <li><strong>\( V \):</strong> Кількість вакцинованих осіб.</li>
+      <li><strong>\( &#946; \):</strong> Коефіцієнт передачі інфекції (шанс передачі інфекції від інфікованого до сприйнятливого).</li>
+      <li><strong>\(\gamma\):</strong> Коефіцієнт одужання (швидкість, з якою інфіковані одужують).</li>
+      <li><strong>\(\sigma\):</strong> Параметр стохастичних збурень для кожної групи (генерація випадкових змінних).</li>
+      <li><strong>\( &#955;_{jump} \):</strong> Середнє число випадкових "стрибків" (Пуассонівське збурення) для інфікованих.</li>
+      <li><strong>\( v_{rate} \):</strong> Швидкість вакцинування.</li>
+      <li><strong>\( reinf_{rate} \):</strong> Швидкість реінфекції (перехід від R до I).</li>
+      <li><strong>\( reinf_{factor} \):</strong> Фактор, який визначає вплив реінфекції на популяцію.</li>
+      <li><strong>\( t_{max} \):</strong> Максимальний час моделювання.</li>
+      <li><strong>\( dt \):</strong> Крок часу для числового розв'язку.</li>
+      <li><strong>\( vaccine_{start} \):</strong> Час початку вакцинування.</li>
+    </ul>
+
+    <h4>Інтерпретація моделі:</h4>
+    <p>Ця модель моделює зміни в чисельності кожної групи через стохастичні диференціальні рівняння. Вакцинування поступово зменшує кількість сприйнятливих осіб і збільшує кількість вакцинованих, що дає змогу контролювати епідемію. Реінфекція та стохастичні збурення додають випадковість в процес і роблять модель більш реалістичною.</p>
+  </section>
+
+  <script type="text/javascript">
+     MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
+  </script>
