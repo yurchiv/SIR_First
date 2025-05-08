@@ -12,10 +12,36 @@ from concurrent.futures import ThreadPoolExecutor
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM
-
+from tensorflow.keras.callbacks import Callback
 
 # Створення Flask додатку
 app = Flask(__name__)
+
+# Глобальна змінна для зберігання результату
+plot_url = None
+
+# === Прогрес статус ===
+progress_status = {"progress": 0, "status": "Очікування...", "plot_url": None}
+
+# === Callback ===
+class TrainingProgressCallback(Callback):
+    def on_train_begin(self, logs=None):
+        progress_status.update({"progress": 0, "status": "Початок тренування", "loss": None})
+
+    def on_epoch_end(self, epoch, logs=None):
+        total_epochs = self.params['epochs']
+        progress = int(((epoch + 1) / total_epochs) * 100)
+        progress_status.update({
+            "progress": progress,
+            "status": f"Епоха {epoch + 1}/{total_epochs}",
+            "loss": logs.get("loss")
+        })
+
+    def on_train_end(self, logs=None):
+        progress_status.update({"progress": 100, "status": "Тренування завершено"})
+
+
+
 
 mean_errors = {
                 "Loss" : 0,
@@ -23,229 +49,6 @@ mean_errors = {
                 "MSE"  : 0,
                 "RMSE" : 0
               }
-
-# Шаблон для веб-сторінки
-TEMPLATE = '''
-<!doctype html>
-<title>Епідеміологічна модель</title>
-<style>
-  /* Загальний стиль для сторінки */
-  body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-  }
-
-  /* Стилі для header */
-  header {
-    background-color: #4CAF50;
-    color: white;
-    text-align: center;
-    padding: 10px 0;
-  }
-
-  /* Стилі для меню */
-  nav {
-    background-color: #f2f2f2;
-    padding: 10px;
-    text-align: center;
-  }
-
-  nav a {
-    margin: 0 15px;
-    color: #4CAF50;
-    text-decoration: none;
-  }
-
-  nav a:hover {
-    text-decoration: underline;
-  }
-
-  /* Стилі для footer */
-  footer {
-    background-color: #4CAF50;
-    color: white;
-    text-align: center;
-    padding: 10px 0;
-    position: absolute;
-    width: 100%;
-    bottom: 0;
-  }
-
-  /* Система колонок */
-  .container {
-    display: flex;
-    min-height: 80vh; /* Висота основного контенту */
-    padding: 20px;
-  }
-
-  /* Ліва колонка (параметри) */
-  .left-column {
-    width: 30%; /* Ширина лівої колонки */
-    padding: 20px;
-    border-right: 2px solid #ddd;
-  }
-
-  /* Права колонка (графік) */
-  .right-column {
-    width: 70%; /* Ширина правої колонки */
-    padding: 20px;
-  }
-
-  /* Стилі для форм */
-  input[type="number"] {
-    margin: 5px 0;
-    padding: 5px;
-    width: 100%;
-  }
-
-  input[type="checkbox"] {
-    margin: 10px 0;
-  }
-
-  input[type="submit"] {
-    background-color: #4CAF50;
-    color: white;
-    padding: 10px;
-    border: none;
-    cursor: pointer;
-    width: 100%;
-  }
-
-  input[type="submit"]:hover {
-    background-color: #45a049;
-  }
-
-  /* Стилі для зображення графіку */
-  .result img {
-    max-width: 100%;
-    height: auto;
-  }
-
-  /* Стиль для результатів */
-  .result {
-    margin-top: 20px;
-  }
-</style>
-
-<script type="text/javascript" async
-  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML">
-</script>
-
-<header>
-  <h1>Епідеміологічна модель</h1>
-</header>
-
-<nav>
-  <a href="#model-description">Теоретична частина</a>
-  <a href="#">Графік</a>
-  <a href="#">Параметри</a>
-  <a href="#">Експорт CSV</a>
-  <a href="#">Експорт PDF</a>
-</nav>
-
-<div class="container">
-  <!-- Ліва колонка (параметри) -->
-  <div class="left-column">
-    <h2>Налаштування моделі епідемії</h2>
-    <form method="POST">
-
-      {% for key, val in params.items() %}
-        <label>{{ key }}:</label>
-        <input name="{{ key }}" value="{{ val }}" type="number" step="any"><br>
-      {% endfor %}
-      <input type="submit" value="Запустити модель">
-      
-    </form>  
-
-    <!-- порівняння результатів -->
-    <br><br>
-    <form method="POST" action="/compare">
-      <input type="submit" value="Порівняти результати без нейромережі та з нейромережею">
-    </form>
-
-   
-    </form>
-  </div>
-
-  <!-- Права колонка (графік) -->
-  <div class="right-column">
-    {% if plot_url %}
-      <h3>Результат моделювання:</h3>
-      <img src="data:image/png;base64,{{ plot_url }}" alt="Графік результатів моделювання">
-      <section id="export" class="result">
-        <p><a href="/download-csv">Завантажити CSV</a></p>
-        <p><a href="/download-pdf">Завантажити PDF</a></p>
-      </section>
-
-      <h1>Помилки (для нейромережі)</h1>
-                <p>Loss     : {{ mean_errors["Loss"] }}</p>
-                <p>MAE      : {{ mean_errors["MAE"] }}</p>
-                <p>MSE      : {{ mean_errors["MSE"] }}</p>
-                <p>Root MSE : {{ mean_errors["RMSE"] }}</p>
-
-    {% endif %}
-  </div>
-</div>
-
-    
-
-    <section id="model-description" class="description-container">
-
-    <h3>Опис теоретичної моделі</h3>
-    <p>Ми використовуємо стохастичну модель для моделювання поширення інфекційної хвороби в популяції, з урахуванням вакцинування та реінфекції. Ця модель складається з чотирьох груп осіб: сприйнятливі (S), інфіковані (I), одужавші (R), та вакциновані (V). Моделювання базується на стохастичних диференціальних рівняннях, де враховано ймовірнісні збурення для кожної групи.</p>
-    
-    <h4>Математичні рівняння:</h4>
-    <p>Математичні рівняння моделі виглядають наступним чином:</p>
-    <p>1. Для групи сприйнятливих:</p>
-    <p>
-      \( dS = - &#946; \cdot S \cdot I \cdot dt + \sigma \cdot S \cdot dW_S - v_{rate} \cdot S \cdot dt + reinf_{rate} \cdot R \cdot dt \)
-    </p>
-    <p>2. Для групи інфікованих:</p>
-    <p>
-      \( dI = ( &#946; \cdot S \cdot I - \gamma \cdot I) \cdot dt + \sigma \cdot I \cdot dW_I + {&#955;}_{jump} dN_t + {reinf}_{rate} \cdot R \cdot dt \cdot {reinf}_{factor} \)
-    </p>
-    <p>3. Для групи одужалих:</p>
-    <p>
-      \( dR = \gamma \cdot I \cdot dt + \sigma \cdot I \cdot dW_R - {reinf}_{rate} \cdot R \cdot dt \cdot {reinf}_{factor} \)
-    </p>
-    <p>4. Для групи вакцинованих:</p>
-    <p>
-      \( dV = v_{rate} \cdot S \cdot dt \) (починаючи з \( vaccine_{start}\) ) 
-    </p>
-    
-    <h4>Опис змінних та параметрів:</h4>
-    <ul>
-      <li><strong>\( S \):</strong> Кількість осіб, які є сприйнятливими до інфекції.</li>
-      <li><strong>\( I \):</strong> Кількість інфікованих осіб.</li>
-      <li><strong>\( R \):</strong> Кількість осіб, які одужали від інфекції.</li>
-      <li><strong>\( V \):</strong> Кількість вакцинованих осіб.</li>
-      <li><strong>\( &#946; \):</strong> Коефіцієнт передачі інфекції (шанс передачі інфекції від інфікованого до сприйнятливого).</li>
-      <li><strong>\(\gamma\):</strong> Коефіцієнт одужання (швидкість, з якою інфіковані одужують).</li>
-      <li><strong>\(\sigma\):</strong> Параметр стохастичних збурень для кожної групи (генерація випадкових змінних).</li>
-      <li><strong>\( &#955;_{jump} \):</strong> Середнє число випадкових "стрибків" (Пуассонівське збурення) для інфікованих.</li>
-      <li><strong>\( v_{rate} \):</strong> Швидкість вакцинування.</li>
-      <li><strong>\( reinf_{rate} \):</strong> Швидкість реінфекції (перехід від R до I).</li>
-      <li><strong>\( reinf_{factor} \):</strong> Фактор, який визначає вплив реінфекції на популяцію.</li>
-      <li><strong>\( t_{max} \):</strong> Максимальний час моделювання.</li>
-      <li><strong>\( dt \):</strong> Крок часу для числового розв'язку.</li>
-      <li><strong>\( vaccine_{start} \):</strong> Час початку вакцинування.</li>
-    </ul>
-
-    <h4>Інтерпретація моделі:</h4>
-    <p>Ця модель моделює зміни в чисельності кожної групи через стохастичні диференціальні рівняння. Вакцинування поступово зменшує кількість сприйнятливих осіб і збільшує кількість вакцинованих, що дає змогу контролювати епідемію. Реінфекція та стохастичні збурення додають випадковість в процес і роблять модель більш реалістичною.</p>
-  </section>
-
-  <script type="text/javascript">
-     MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
-  </script>
-
-'''
-
-#<footer>
-#  <p>Епідеміологічна модель 2025</p>
-#</footer>
-
 
 # Початкові параметри за замовчуванням
 DEFAULT_PARAMS = {
@@ -268,11 +71,9 @@ DEFAULT_PARAMS = {
 
 RESULTS = []
 
-# Глобальна змінна для зберігання результату
-plot_url = None
-
 # Функція для обробки моделювання
 def run_simulation_async(**params):
+    global plot_url
     plot_url = run_simulation(**params)  # Викликаємо основну функцію моделювання
     return plot_url
 
@@ -345,7 +146,9 @@ def run_simulation(N, I0, R0, V0, beta, gamma, sigma, lambda_jump,
         X, y = prepare_data(S, I, R, V, time)
 
         model = build_model((X.shape[1], 1))
-        model.fit(X, y, epochs=50, batch_size=32)
+
+        # model.fit(X, y, epochs=50, batch_size=32)
+        model.fit(X, y, epochs=50, batch_size=32, callbacks=[TrainingProgressCallback()])
 
         val_loss, val_mae, val_mse = model.evaluate(X, y)
         
@@ -456,9 +259,9 @@ def build_model(input_shape):
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    plot_url = None
+    global plot_url
     params = DEFAULT_PARAMS.copy()
-    print(params)
+    
     use_neural_net = False
     if request.method == 'POST':
 
@@ -522,7 +325,15 @@ def download_pdf():
 
 
 # Функція для запуску довготривалих обчислень
-def long_running_task(params):
+def long_running_task(params, update_callback=None):
+
+    import time
+    
+    for i in range(20):
+        time.sleep(0.2)
+        if update_callback:
+            update_callback(i / 20)
+            
     """Функція для запуску обчислень у фоновому потоці"""
     # Запуск моделювання без нейромережі
     params['use_neural_net']=False
@@ -580,59 +391,111 @@ def long_running_task(params):
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
-    plot_url = base64.b64encode(buf.read()).decode('utf-8')
-    buf.close()
-    plt.close()
+    encoded = base64.b64encode(buf.read()).decode('utf-8')
+    #buf.close()
+    #plt.close()
 
-    return plot_url
+    return encoded
+
+def background_task():
+    global plot_url, progress_status
+    progress_status["status"] = "Стартує обчислення..."
+
+    # Тут можна вставити update-функцію у long_running_task, якщо є
+    def update_progress(p):
+        progress_status["progress"] = int(p * 100)
+        progress_status["status"] = f"Обчислення... {progress_status['progress']}%"
+
+    # Запускаємо твоє моделювання
+    result_base64 = long_running_task(DEFAULT_PARAMS, update_callback=update_progress)
+    progress_status["plot_url"] = result_base64
+    progress_status["status"] = "Готово!"
+    progress_status["progress"] = 100
 
 @app.route('/compare', methods=['GET', 'POST'])
 def compare_results():
-    global plot_url  # Використовуємо глобальну змінну
+    # Запуск обчислень у фоновому потоці
+    thread = threading.Thread(target=background_task)
+    thread.start()
 
-    # Запуск довготривалого обчислення в окремому потоці
-    def update_plot_url():
-        global plot_url  # Вказуємо на глобальну змінну
-        plot_url = long_running_task(DEFAULT_PARAMS)
-
-    # Стартуємо фоновий потік
-    threading.Thread(target=update_plot_url, daemon=True).start()
-
-    # Початковий шаблон (можна додати елементи, що показують статус, поки обчислення не завершені)
     return render_template_string("""
-        <html>
-        <head>
-            <title>Порівняння результатів</title>
-            <script>
-                function loadPlot() {
-                    fetch('/get_plot')
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.plot_url) {
-                                document.getElementById('plot_img').src = 'data:image/png;base64,' + data.plot_url;
-                                document.getElementById('plot_img').style.display = 'block';
-                            }
-                        })
-                        .catch(error => console.error('Error loading plot:', error));
-                }
-                setTimeout(loadPlot, 1000);  // Перевіряти кожну секунду
-            </script>
-        </head>
-        <body>
-            <h1>Порівняння результатів моделювання</h1>
-            <p>Обчислення тривають...</p>
-            <p>Будь ласка, зачекайте...</p>
-            <img id="plot_img" alt="Графік" style="display:none;" />
-        </body>
-        </html>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Порівняння результатів</title>
+        <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            .progress-bar {
+                width: 0%;
+                transition: width 0.5s;
+            }
+        </style>
+    </head>
+    <body>
+    <div class="container mt-5">
+        <h2 class="text-center">Порівняння результатів</h2>
+
+        <div class="my-3">
+            <div class="progress">
+                <div id="progress-bar" class="progress-bar bg-success" role="progressbar">0%</div>
+            </div>
+            <p id="status-text" class="text-center mt-2">Очікування...</p>
+        </div>
+
+        <div id="plot-container" class="text-center mt-4">
+            <img id="plot-img" class="img-fluid border rounded" style="max-height: 400px;">
+        </div>
+    </div>
+
+    <script>
+        function updateProgress() {
+            fetch('/progress')
+                .then(response => response.json())
+                .then(data => {
+                    const bar = document.getElementById('progress-bar');
+                    const text = document.getElementById('status-text');
+                    const img = document.getElementById('plot-img');
+
+                    bar.style.width = data.progress + '%';
+                    bar.innerText = data.progress + '%';
+                    text.innerText = data.status;
+
+                    if (data.progress >= 100 && data.plot_url) {
+                        // Перевіряємо правильність значення plot_url
+                        img.src = 'data:image/png;base64,' + data.plot_url;
+                    }
+                });
+        }
+
+        setInterval(updateProgress, 500);
+    </script>
+    </body>
+    </html>
     """)
+
+@app.route('/progress')
+def progress():
+    return jsonify(progress_status)
 
 @app.route('/get_plot')
 def get_plot():
-    # Повертаємо результат графіка, якщо він є
-    if plot_url:
-        return jsonify({'plot_url': plot_url})
-    return jsonify({'plot_url': None})
+    global plot_url
+    print("DEBUG get_plot: Length of plot_url:", len(plot_url))
+    return jsonify({"plot_url": plot_url})
+
+
+@app.route('/start-training', methods=['POST'])
+def start_training():
+    threading.Thread(target=train_model).start()
+    return jsonify({"message": "Тренування розпочато"})
+
+@app.route('/training-progress')
+def training_progress():
+    return jsonify(progress_status)
+
+
+
+
 
 
 
